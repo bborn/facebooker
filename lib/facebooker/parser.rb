@@ -58,9 +58,14 @@ module Facebooker
     def self.element(name, data)
       data = data.body rescue data # either data or an HTTP response
       begin
-        node = Nokogiri::XML(data.strip).at(name)
-        return node if node
-      rescue # Can't parse with Nokogiri
+        xml = Nokogiri::XML(data.strip)
+        if node = xml.at(name)
+          return node
+        end
+        if xml.root.name == name
+          return xml.root
+        end
+      rescue NameError # Can't parse with Nokogiri
         doc = REXML::Document.new(data)
         doc.elements.each(name) do |element|
           return element
@@ -205,6 +210,12 @@ module Facebooker
       element('stream_publish_response', data).content.strip
     end
   end
+  
+  class StreamAddComment < Parser#:nodoc:
+    def self.process(data)
+      element('stream_addComment_response', data).content.strip
+    end
+  end  
 
   class RegisterTemplateBundle < Parser#:nodoc:
     def self.process(data)
@@ -399,6 +410,26 @@ module Facebooker
     end
   end
 
+  class FqlMultiquery < Parser#nodoc
+    def self.process(data)
+      root = element('fql_multiquery_response', data)
+      root.children.reject { |child| child.text? }.map do |elm|
+        elm.children.reject { |child| child.text? }.map do |query|
+          if 'name' == query.name
+            query.text
+          else
+            list = query.children.reject { |child| child.text? }
+            if list.length == 0
+              []
+            else
+              [list.first.name, array_of_hashes(query, list.first.name)]
+            end
+          end
+        end
+      end
+    end
+  end
+
   class SetRefHandle < Parser#:nodoc:
     def self.process(data)
       element('fbml_setRefHandle_response', data).content.strip
@@ -428,6 +459,12 @@ module Facebooker
       array_of_hashes(element('data_getCookie_response', data), 'cookies')
     end
   end
+  
+  class EventsRsvp < Parser#:nodoc:
+     def self.process(data)
+       element('events_rsvp_response', data).content.strip
+     end
+   end
 
   class EventsGet < Parser#:nodoc:
     def self.process(data)
@@ -535,6 +572,7 @@ module Facebooker
       103 => Facebooker::Session::CallOutOfOrder,
       104 => Facebooker::Session::IncorrectSignature,
       120 => Facebooker::Session::InvalidAlbumId,
+      200 => Facebooker::Session::PermissionError,
       250 => Facebooker::Session::ExtendedPermissionRequired,
       321 => Facebooker::Session::AlbumIsFull,
       324 => Facebooker::Session::MissingOrInvalidImageFile,
@@ -620,6 +658,7 @@ module Facebooker
       'facebook.admin.getAllocation' => GetAllocation,
       'facebook.batch.run' => BatchRun,
       'facebook.fql.query' => FqlQuery,
+      'facebook.fql.multiquery' => FqlMultiquery,
       'facebook.photos.get' => GetPhotos,
       'facebook.photos.getAlbums' => GetAlbums,
       'facebook.photos.createAlbum' => CreateAlbum,
@@ -627,7 +666,9 @@ module Facebooker
       'facebook.photos.addTag' => AddTags,
       'facebook.photos.upload' => UploadPhoto,
       'facebook.stream.publish' => StreamPublish,
+      'facebook.stream.addComment' => StreamAddComment,      
       'facebook.events.get' => EventsGet,
+      'facebook.events.rsvp' => EventsRsvp,
       'facebook.groups.get' => GroupsGet,
       'facebook.events.getMembers' => EventMembersGet,
       'facebook.groups.getMembers' => GroupGetMembers,
